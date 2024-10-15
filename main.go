@@ -1,156 +1,127 @@
 package main
 
 import (
-	"fmt"
-	"math/rand"
-	"time"
+    "math/rand"
+    "sync"
+    "time"
 
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/widget"
+    "github.com/gin-gonic/gin"
+    "net/http"
 )
 
 var (
-	currentGame string
+    targetNumber  int
+    mu            sync.Mutex
+    gameStartTime time.Time
 )
 
 func main() {
-	a := app.New()
-	w := a.NewWindow("小游戏合集")
+    router := gin.Default()
+    router.Static("/static", "./static")
 
-	currentGame = "guessNumber" // 初始游戏设置为猜数字
+    router.LoadHTMLGlob("static/*.html")
 
-	// 游戏选择界面
-	gameSelect := container.NewVBox(
-		widget.NewLabel("选择游戏:"),
-		widget.NewButton("猜数字游戏", func() {
-			startGuessNumberGame(w)
-		}),
-		widget.NewButton("猜拳游戏", func() {
-			startRockPaperScissorsGame(w)
-		}),
-		widget.NewButton("打地鼠游戏", func() {
-			startWhackAMoleGame(w)
-		}),
-	)
+    router.GET("/", func(c *gin.Context) {
+        c.HTML(http.StatusOK, "index.html", nil)
+    })
 
-	w.SetContent(gameSelect)
-	w.ShowAndRun()
+    // 各游戏的路由
+    router.POST("/play/:game", playGame)
+    router.POST("/play/guess", guessNumber)
+    router.POST("/play/rps", playRockPaperScissors)
+    router.POST("/play/timer", startTimer)
+
+    router.Run(":12345") // 修改端口为 12345
 }
 
-// 猜数字游戏
-func startGuessNumberGame(w fyne.Window) {
-	secretNumber := rand.Intn(100) + 1
-	var guess int
+// playGame 初始化游戏
+func playGame(c *gin.Context) {
+    game := c.Param("game")
 
-	// 输入框
-	input := widget.NewEntry()
-	input.SetPlaceHolder("请输入1到100之间的数字")
-
-	// 按钮
-	submit := widget.NewButton("提交", func() {
-		fmt.Sscanf(input.Text, "%d", &guess)
-		if guess < secretNumber {
-			dialog.NewInformation("结果", "太小了，再试一次！", w).Show()
-		} else if guess > secretNumber {
-			dialog.NewInformation("结果", "太大了，再试一次！", w).Show()
-		} else {
-			celebrate("猜数字游戏成功！", w)
-		}
-	})
-
-	// 游戏界面
-	gameContainer := container.NewVBox(
-		widget.NewLabel("猜数字游戏：输入1到100之间的数字"),
-		input,
-		submit,
-	)
-
-	w.SetContent(gameContainer)
+    if game == "guess" {
+        mu.Lock()
+        targetNumber = rand.Intn(100) + 1 // 生成1到100之间的随机数
+        mu.Unlock()
+        c.JSON(http.StatusOK, gin.H{
+            "message": "已开始猜数字游戏，目标数字是一个1到100之间的随机数！",
+        })
+    } else if game == "rps" {
+        mu.Lock()
+        c.JSON(http.StatusOK, gin.H{"message": "已开始石头剪刀布游戏！请提交你的选择。"})
+        mu.Unlock()
+    } else if game == "timer" {
+        mu.Lock()
+        gameStartTime = time.Now()
+        mu.Unlock()
+        c.JSON(http.StatusOK, gin.H{"message": "计时器游戏开始！请在 5 秒内提交！"})
+    } else {
+        c.JSON(http.StatusBadRequest, gin.H{"message": "未识别的游戏"})
+    }
 }
 
-// 猜拳游戏
-func startRockPaperScissorsGame(w fyne.Window) {
-	choices := []string{"剪刀", "石头", "布"}
-	rand.Seed(time.Now().UnixNano())
+// guessNumber 处理用户猜测
+func guessNumber(c *gin.Context) {
+    var guess struct {
+        Number int `json:"number"`
+    }
 
-	// 输入框
-	input := widget.NewSelect([]string{"剪刀", "石头", "布"}, func(choice string) {
-		computerChoice := rand.Intn(3)
-		if choice == choices[computerChoice] {
-			dialog.NewInformation("结果", "平局！", w).Show()
-		} else if (choice == "剪刀" && computerChoice == 2) || (choice == "石头" && computerChoice == 0) || (choice == "布" && computerChoice == 1) {
-			celebrate("你赢了！", w)
-		} else {
-			dialog.NewInformation("结果", "你输了！", w).Show()
-		}
-	})
-
-	// 按钮
-	submit := widget.NewButton("提交", func() {
-		input.OnChanged(input.Selected)
-	})
-
-	// 游戏界面
-	gameContainer := container.NewVBox(
-		widget.NewLabel("猜拳游戏：选择剪刀、石头或布"),
-		input,
-		submit,
-	)
-
-	w.SetContent(gameContainer)
+    if err := c.ShouldBindJSON(&guess); err == nil {
+        mu.Lock()
+        if guess.Number == targetNumber {
+            mu.Unlock()
+            c.JSON(http.StatusOK, gin.H{"message": "恭喜你，猜对了！"})
+        } else if guess.Number < targetNumber {
+            mu.Unlock()
+            c.JSON(http.StatusOK, gin.H{"message": "猜小了，再试试！"})
+        } else {
+            mu.Unlock()
+            c.JSON(http.StatusOK, gin.H{"message": "猜大了，再试试！"})
+        }
+    } else {
+        c.JSON(http.StatusBadRequest, gin.H{"message": "请求数据不合法"})
+    }
 }
 
-// 打地鼠游戏
-func startWhackAMoleGame(w fyne.Window) {
-	moles := 0
-	hits := 0
-	rounds := 10
+// playRockPaperScissors 处理石头剪刀布
+func playRockPaperScissors(c *gin.Context) {
+    var choice struct {
+        PlayerChoice string `json:"choice"`
+    }
 
-	for i := 0; i < rounds; i++ {
-		moles = rand.Intn(3) + 1
-		dialog.NewInformation("回合", fmt.Sprintf("回合 %d：击打 %d 个地鼠！", i+1, moles), w).Show()
-		hits += moles
-	}
+    if err := c.ShouldBindJSON(&choice); err == nil {
+        options := []string{"rock", "paper", "scissors"}
+        computerChoice := options[rand.Intn(3)]
 
-	celebrate(fmt.Sprintf("你总共击打了 %d 个地鼠！", hits), w)
+        var result string
+        if choice.PlayerChoice == computerChoice {
+            result = "平局！"
+        } else if (choice.PlayerChoice == "rock" && computerChoice == "scissors") ||
+            (choice.PlayerChoice == "scissors" && computerChoice == "paper") ||
+            (choice.PlayerChoice == "paper" && computerChoice == "rock") {
+            result = "你赢了！"
+        } else {
+            result = "你输了！"
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "computer": computerChoice,
+            "result":   result,
+        })
+    } else {
+        c.JSON(http.StatusBadRequest, gin.H{"message": "请求数据不合法"})
+    }
 }
 
-// 庆祝效果
-func celebrate(message string, w fyne.Window) {
-	dialog.NewInformation("庆祝", message, w).Show()
-	// 重新开始按钮
-	restart := widget.NewButton("重新开始", func() {
-		currentGame = "guessNumber"
-		startGameSelection(w)
-	})
+// startTimer 处理计时器游戏
+func startTimer(c *gin.Context) {
+    mu.Lock()
+    elapsed := time.Since(gameStartTime).Seconds()
+    mu.Unlock()
 
-	// 游戏结束界面
-	celebrateContainer := container.NewVBox(
-		widget.NewLabel(message),
-		restart,
-	)
-
-	w.SetContent(celebrateContainer)
-}
-
-// 游戏选择界面
-func startGameSelection(w fyne.Window) {
-	// 游戏选择界面
-	gameSelect := container.NewVBox(
-		widget.NewLabel("选择游戏:"),
-		widget.NewButton("猜数字游戏", func() {
-			startGuessNumberGame(w)
-		}),
-		widget.NewButton("猜拳游戏", func() {
-			startRockPaperScissorsGame(w)
-		}),
-		widget.NewButton("打地鼠游戏", func() {
-			startWhackAMoleGame(w)
-		}),
-	)
-
-	w.SetContent(gameSelect)
+    if elapsed < 5 {
+        c.JSON(http.StatusOK, gin.H{"message": "成功在 5 秒内提交！", "time": elapsed})
+    } else {
+        c.JSON(http.StatusOK, gin.H{"message": "时间已过，请再试一次！", "time": elapsed})
+    }
 }
 

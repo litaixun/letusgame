@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <title>Let Us Game</title>
+</head>
+<body>
+    <div class="container">
+        <h1>欢迎来到 Let Us Game</h1>
+        <div class="game-selection">
+            <button onclick="startGame('guess')">猜数字</button>
+            <button onclick="startGame('rps')">石头剪刀布</button>
+            <button onclick="startGame('timer')">计时器游戏</button>
+        </div>
+        <div id="game-output" class="game-output"></div>
+        <div id="celebration" class="celebration"></div>
+        <div id="guess-input" class="guess-input" style="display: none;">
+            <input type="number" id="user-guess" placeholder="输入你的猜测" />
+            <button onclick="submitGuess()">提交猜测</button>
+        </div>
+        <div id="rps-input" class="rps-input" style="display: none;">
+            <button onclick="submitRPS('rock')">石头</button>
+            <button onclick="submitRPS('paper')">布</button>
+            <button onclick="submitRPS('scissors')">剪刀</button>
+        </div>
+        <div id="timer-input" class="timer-input" style="display: none;">
+            <button onclick="submitTimer()">提交</button>
+        </div>
+    </div>
+    <script src="/static/js/script.js"></script>
+</body>
+</html>
+
